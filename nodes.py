@@ -28,3 +28,11 @@ class SourcefulOfficialComfyuiIncontextThreePanels:
         )
         prediction.wait()
         return (prediction.output,)
+
+NODE_CLASS_MAPPINGS = {
+    "SourcefulOfficialComfyuiIncontextThreePanels": SourcefulOfficialComfyuiIncontextThreePanels,
+}
+
+NODE_DISPLAY_NAME_MAPPINGS = {
+    "SourcefulOfficialComfyuiIncontextThreePanels": "SourcefulOfficialComfyuiIncontextThreePanels",
+}
