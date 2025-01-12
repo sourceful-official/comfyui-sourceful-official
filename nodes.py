@@ -87,6 +87,10 @@ class SourcefulOfficialComfyuiIncontextThreePanels:
         print("prompt", prompt)
         print("logo_image", logo_image)
         print("target_image", target_images)
+
+        if target_images is None:
+            return (None,)
+
         predictions = []
         print("target_images.shape", target_images.shape)
         for i in range(target_images.shape[0]):
