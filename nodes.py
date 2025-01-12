@@ -6,8 +6,48 @@ import torchvision.transforms as transforms
 import requests
 from PIL import Image
 import numpy as np
-from fal_client import submit
+import os
+import tempfile
+from fal_client import submit, upload_file
 
+def upload_image(image):
+    try:
+        # Convert the image tensor to a numpy array
+        if isinstance(image, torch.Tensor):
+            image_np = image.cpu().numpy()
+        else:
+            image_np = np.array(image)
+
+        # Ensure the image is in the correct format (H, W, C)
+        if image_np.ndim == 4:
+            image_np = image_np.squeeze(0)  # Remove batch dimension if present
+        if image_np.ndim == 2:
+            image_np = np.stack([image_np] * 3, axis=-1)  # Convert grayscale to RGB
+        elif image_np.shape[0] == 3:
+            image_np = np.transpose(image_np, (1, 2, 0))  # Change from (C, H, W) to (H, W, C)
+
+        # Normalize the image data to 0-255 range
+        if image_np.dtype == np.float32 or image_np.dtype == np.float64:
+            image_np = (image_np * 255).astype(np.uint8)
+
+        # Convert to PIL Image
+        pil_image = Image.fromarray(image_np)
+
+        # Save the image to a temporary file
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_file:
+            pil_image.save(temp_file, format="PNG")
+            temp_file_path = temp_file.name
+
+        # Upload the temporary file
+        image_url = upload_file(temp_file_path)
+        return image_url
+    except Exception as e:
+        print(f"Error uploading image: {str(e)}")
+        return None
+    finally:
+        # Clean up the temporary file
+        if 'temp_file_path' in locals():
+            os.unlink(temp_file_path)
 
 def image_to_base64(image):
     if isinstance(image, torch.Tensor):
@@ -31,7 +71,7 @@ class SourcefulOfficialComfyuiIncontextThreePanels:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "prompt": ("STRING", {"default": ""}),
+                "prompt": ("STRING", {"default": "" , "multiline": True}),
                 "logo_image": ("IMAGE",),
                 "target_images": ("IMAGE", {"array": True}),
             },
@@ -64,8 +104,9 @@ class SourcefulOfficialComfyuiIncontextThreePanels:
             predictions.append(prediction)
         for prediction in predictions:
             prediction.wait()
+        results = []
         for prediction in predictions:
-            print("prediction.output", prediction.output)
+            print("prediction.output", prediction)
             output_url = prediction.output[1]
             print("output_url", output_url)
             transform = transforms.ToTensor()
@@ -76,8 +117,9 @@ class SourcefulOfficialComfyuiIncontextThreePanels:
             tensor_image = transform(image)
             tensor_image = tensor_image.unsqueeze(0)
             tensor_image = tensor_image.permute(0, 2, 3, 1).cpu().float()
-            predictions.append(tensor_image)
-        return (predictions,)
+            results.append(tensor_image)
+        final_tensor = torch.cat(results, dim=0)
+        return (final_tensor,)
     
 class FalFluxLoraSourcefulOfficial:
     @classmethod
@@ -152,12 +194,119 @@ class FalFluxLoraSourcefulOfficial:
         return (img_tensor,)
 
 
+class FalIcLightV2SourcefulOfficial:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "images": ("IMAGE", {"array": True}),
+                "cfg": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.05}),
+                "prompt": ("STRING", {"default": "", "multiline": True}),
+                "output_format": ("STRING", {"default": "jpeg", "options": ["jpeg", "png"]}),
+                "guidance_scale": ("FLOAT", {"default": 5.0, "min": 0.0, "max": 10.0, "step": 0.05}),
+                "initial_latent": ("STRING", {"default": "None", "options": ['None', 'Left', 'Right', 'Top', 'Bottom']}),
+                "lowres_denoise": ("FLOAT", {"default": 0.98, "min": 0.0, "max": 1.0, "step": 0.05}),
+                "highres_denoise": ("FLOAT", {"default": 0.95, "min": 0.0, "max": 1.0, "step": 0.05}),
+                "num_inference_steps": ("INT", {"default": 28, "min": 1, "max": 100}),
+                "background_threshold": ("FLOAT", {"default": 0.67, "min": 0.0, "max": 1.0, "step": 0.05}),
+                "enable_safety_checker": ("BOOLEAN", {"default": True}),
+                "seed": ("INT", {"default": -1}),
+            },
+        }
+
+    RETURN_TYPES = ("IMAGE", )
+    FUNCTION = "generate_image"
+    CATEGORY = "sourceful-official"
+
+    def generate_image(
+            self, 
+            images, 
+            cfg=1.0, 
+            prompt="", 
+            hr_downscale=0.5, 
+            output_format="jpeg", 
+            guidance_scale=5.0, 
+            initial_latent="None",
+            lowres_denoise=0.98, 
+            highres_denoise=0.95, 
+            num_inference_steps=28, 
+            background_threshold=0.67, 
+            enable_safety_checker=True,
+            seed=-1,   
+        ):
+        handlers = []
+        results = []
+            
+        print("hr_downscale", hr_downscale)
+        for i in range(images.shape[0]):
+            image = images[i]
+            image = image.unsqueeze(0) 
+            image_url = upload_image(image)
+            arguments = {
+                "cfg": cfg,
+                "prompt": prompt,
+                "image_url": image_url,
+                "num_images": 1,
+                "hr_downscale": hr_downscale,
+                "output_format": output_format,
+                "guidance_scale": guidance_scale,
+                "initial_latent": initial_latent,
+                "lowres_denoise": lowres_denoise,
+                "highres_denoise": highres_denoise,
+                "num_inference_steps": num_inference_steps,
+                "background_threshold": background_threshold,
+                "enable_safety_checker": enable_safety_checker,
+            }
+
+            if seed != -1:
+                arguments["seed"] = seed
+            print("arguments", arguments)
+            handler = submit(
+                "fal-ai/iclight-v2", 
+                arguments=arguments,
+            )
+            handlers.append(handler)
+        for handler in handlers:
+            result = handler.get()
+            results.append(self.process_result(result)[0])
+        print("results", results)
+        final_tensor = torch.cat(results, dim=0)
+        return (final_tensor,)
+
+
+    def process_result(self, result):
+        images = []
+        for img_info in result["images"]:
+            img_url = img_info["url"]
+            img_response = requests.get(img_url)
+            img = Image.open(io.BytesIO(img_response.content))
+            img_array = np.array(img).astype(np.float32) / 255.0
+            images.append(img_array)
+
+        # Stack the images along a new first dimension
+        stacked_images = np.stack(images, axis=0)
+        
+        # Convert to PyTorch tensor
+        img_tensor = torch.from_numpy(stacked_images)
+        
+        return (img_tensor,)
+
+    def create_blank_image(self):   
+        blank_img = Image.new('RGB', (512, 512), color='black')
+        img_array = np.array(blank_img).astype(np.float32) / 255.0
+        img_tensor = torch.from_numpy(img_array)[None,]
+        return (img_tensor,)
+
+
+
 NODE_CLASS_MAPPINGS = {
     "SourcefulOfficialComfyuiIncontextThreePanels": SourcefulOfficialComfyuiIncontextThreePanels,
     "FalFluxLoraSourcefulOfficial": FalFluxLoraSourcefulOfficial,
+    "FalIcLightV2SourcefulOfficial": FalIcLightV2SourcefulOfficial,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "SourcefulOfficialComfyuiIncontextThreePanels": "SourcefulOfficialComfyuiIncontextThreePanels",
     "FalFluxLoraSourcefulOfficial": "FalFluxLoraSourcefulOfficial",
+    "FalIcLightV2SourcefulOfficial": "FalIcLightV2SourcefulOfficial",
 }
