@@ -75,6 +75,9 @@ class SourcefulOfficialComfyuiIncontextThreePanels:
                 "logo_image": ("IMAGE",),
                 "target_images": ("IMAGE", {"array": True}),
             },
+            "optional": {
+                "seed": ("INT", {"default": -1}),
+            }
         }
 
     RETURN_TYPES = ("IMAGE",)
@@ -83,27 +86,34 @@ class SourcefulOfficialComfyuiIncontextThreePanels:
     def __init__(self):
         pass
 
-    def comfyui_incontext_three_panels(self, prompt, logo_image, target_images):
+    def comfyui_incontext_three_panels(
+            self, 
+            prompt, 
+            logo_image, 
+            target_images,
+            seed=-1,
+        ):
         print("prompt", prompt)
         print("logo_image", logo_image)
         print("target_image", target_images)
-
-        if target_images is None:
-            return (None,)
-
         predictions = []
         print("target_images.shape", target_images.shape)
         for i in range(target_images.shape[0]):
             target_image = target_images[i]
             target_image = target_image.unsqueeze(0) 
             print("target_image.shape", target_image.shape)
+
+            input = {
+                "prompt": prompt, 
+                "logo_image": image_to_base64(logo_image), 
+                "target_image": image_to_base64(target_image)
+            }
+            if seed != -1:
+                input["seed"] = seed
             deployment = replicate.deployments.get(
                 "sourceful-official/cog-comfyui-incontext-three-panels")
             prediction = deployment.predictions.create(
-                input={
-                    "prompt": prompt, 
-                    "logo_image": image_to_base64(logo_image), 
-                    "target_image": image_to_base64(target_image)}
+                input=input
             )
             predictions.append(prediction)
         for prediction in predictions:
