@@ -93,6 +93,11 @@ class SourcefulOfficialComfyuiIncontextThreePanels:
             target_images,
             seed=-1,
         ):
+        if logo_image is None:
+            return (None,)
+        if target_images is None:
+            return (None,)
+            
         print("prompt", prompt)
         print("logo_image", logo_image)
         print("target_image", target_images)
