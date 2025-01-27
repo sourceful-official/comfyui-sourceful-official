@@ -318,6 +318,74 @@ class FalIcLightV2SourcefulOfficial:
 
 
 
+class ReplicateLamaInpainting:
+    CATEGORY = "sourceful-official"
+
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "mask": ("IMAGE",),
+            },
+            "optional": {
+                "seed": ("INT", {"default": -1}),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "comfyui_incontext_three_panels"
+
+    def __init__(self):
+        pass
+
+    def replicate_lama_inpainting(
+            self, 
+            images, 
+            masks,
+        ):
+        if images is None:
+            return (None,)
+        if masks is None:
+            return (None,)
+
+        predictions = []
+        for i in range(images.shape[0]):
+            image = images[i]
+            mask = masks[i]
+            image = image.unsqueeze(0) 
+            mask = mask.unsqueeze(0) 
+            print("image.shape", image.shape)
+            print("mask.shape", mask.shape)
+
+            prediction = replicate.run(
+                "allenhooo/lama:cdac78a1bec5b23c07fd29692fb70baa513ea403a39e643c48ec5edadb15fe72",
+                input={
+                    "mask": image_to_base64(image), 
+                    "image": image_to_base64(mask)
+                }
+            )
+            predictions.append(prediction)
+        for prediction in predictions:
+            prediction.wait()
+        results = []
+        for prediction in predictions:
+            print("prediction.output", prediction)
+            output_url = prediction.output[0]
+            print("output_url", output_url)
+            transform = transforms.ToTensor()
+            response = requests.get(output_url)
+            image = Image.open(io.BytesIO(response.content))
+            if image.mode != "RGB":
+                image = image.convert("RGB")
+            tensor_image = transform(image)
+            tensor_image = tensor_image.unsqueeze(0)
+            tensor_image = tensor_image.permute(0, 2, 3, 1).cpu().float()
+            results.append(tensor_image)
+        final_tensor = torch.cat(results, dim=0)
+        return (final_tensor,)
+
+
 NODE_CLASS_MAPPINGS = {
     "SourcefulOfficialComfyuiIncontextThreePanels": SourcefulOfficialComfyuiIncontextThreePanels,
     "FalFluxLoraSourcefulOfficial": FalFluxLoraSourcefulOfficial,
